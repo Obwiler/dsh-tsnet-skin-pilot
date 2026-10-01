@@ -1,0 +1,31 @@
+{
+  "name": "dsh-tsnet-skin-pilot",
+  "version": "0.5.0",
+  "description": "DSH Web 皮肤：跟着背景取色的主题、7 档背景（含自定义渐变与照片档）、右缘刻度轨（可跳转对话位置）——零几何改动路线",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": { "default": "./lib/index.js" },
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "inject": ["slots"], "platform": "web" }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/bg-engine.js",
+    "lib/rail-engine.js",
+    "cordis.patch.yml",
+    "skin.css",
+    "build.mjs",
+    "install.ps1",
+    "README.md"
+  ],
+  "license": "MIT",
+  "keywords": ["dsh", "dsh-plugin", "deepseek-harness", "skin", "theme"],
+  "repository": { "type": "git", "url": "https://github.com/Obwiler/dsh-tsnet-skin-pilot.git" }
+}

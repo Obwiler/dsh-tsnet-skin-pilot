@@ -1,0 +1,8 @@
+# dsh-tsnet-skin-pilot —— DSH bundle patch
+# DSH 皮肤：主机半空实现（lib/index.js）；浏览器半（lib/client.js）
+# 只注入一份 <style> 并给 body 挂 data-tsnet-skin。
+# 源码与说明：见本插件仓库的 README.md
+# 撤：install.ps1 -Uninstall（连依赖行与 junction 一起撤），或删掉下面两行（热生效）。
+- insert:
+    - id: tsnet-skin-pilot
+      name: dsh-tsnet-skin-pilot

@@ -1,0 +1,512 @@
+/* skin.css —— DSH 皮肤 v3 · 阶段 3 试点（浮层 + 侧栏）2026-09-28
+ *
+ * 试点范围**只有两块**：① 浮层（菜单 / 对话框 / 列表 / 提示）② 侧栏。
+ * 会话列、输入卡、数据区一律不动 —— 等这两块跑通回归再扩面。
+ *
+ * ★ 本文件遵守 tsnet-ui-engineering §70 的五条硬约束，重点是：
+ *   · **零几何改动**：一切发丝线与左轨都用 `box-shadow`（inset）画，不用 border 宽度、不改 padding；
+ *   · **零裁剪**：不用 clip-path / overflow / mask / transform / filter / backdrop-filter ——
+ *     切角留到阶段 4，按"叶子白名单"逐项验证（叶子 = 不包含任何弹层的元素）；
+ *   · 只动：颜色令牌、字体族/字号/字重/字距、圆角（不裁子孙）、阴影、焦点环与选中色、滚动条配色。
+ *
+ * 根因备忘（为什么这么保守）：上一版给输入卡加装饰性 clip-path，而 DSH 的 popover 是输入卡的
+ * DOM 子孙（不 portal），于是整个模型选择面板被裁到屏幕外 ⇒ 用户换不了模型（风险级功能缺失）。
+ * 取证：docs\archive\dsh-tsnet-theme-20260928\evidence\45-clip-kills-menu.png
+ */
+
+/* ═══ 1. 令牌（形态感知，单一来源）═══ */
+body[data-tsnet-skin] {
+  --sk-rail: 4px;
+  --sk-hair: rgba(163, 219, 235, .10);
+  --sk-hair-2: rgba(163, 219, 235, .06);
+  --sk-paper: rgba(242, 247, 248, .985);
+  --sk-paper-ink: #10262e;
+  --sk-paper-line: rgba(16, 42, 51, .14);
+  --sk-shadow: 0 22px 60px rgba(0, 0, 0, .52);
+  /* 背景场令牌（背景引擎与档位共用；改档只改变量，不改变规则） */
+  --tsn-noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.04 0'/></filter><rect width='256' height='256' filter='url(%23n)'/></svg>");
+  --tsn-grid: rgba(163, 219, 235, .055);   /* ★ 2026-09-28 批1 实测上调（原 .028）：
+      第一轮读图发现整个界面是"纯暗平面"、材质四档**看不出差别** —— 真因不是材质没生效
+      （计算值实测 0.38/0.45/0.60/0.96 都对），而是**背后没有可透出的结构**：网格 alpha 太低，
+      玻璃没有东西可以"模糊"。中控台读得出亚克力，正因为它背后有结构。
+      这一条是**方向性改动**（默认背景的强度），已出样张供用户拍板；嫌重就调回 .028。 */
+  --tsn-glow-cool: rgba(86, 200, 221, .22);
+  --tsn-glow-warm: rgba(255, 166, 61, .26);
+  --tsn-bg-layer: none;
+  --tsn-bg-blur: 0px;
+  --tsn-bg-dim: 0;
+  --tsn-bg-scale: 1;
+}
+body[data-tsnet-skin][data-ds-dark-theme] {
+  --sk-primary: #ff7a3c;          /* 暗形态主色：琥珀橙（主色跟随背景时由引擎覆盖） */
+  --sk-secondary: #56c8dd;        /* 副色：青蓝（信息/焦点/选中） */
+  /* 双层阴影：一层紧贴（给"坐在上面"的接触感）+ 一层环境（拉开空间） */
+  --sk-shadow: 0 2px 8px rgba(0, 0, 0, .42), 0 22px 60px rgba(0, 0, 0, .52);
+}
+body[data-tsnet-skin]:not([data-ds-dark-theme]) {
+  --sk-primary: #0e7c8c;          /* 亮形态主色：深青（主色随形态换） */
+  --sk-secondary: #0f6f9f;
+  --sk-hair: rgba(16, 42, 51, .12);
+  --sk-hair-2: rgba(16, 42, 51, .07);
+  /* ★ 亮形态的浮层必须比底面更亮：底色是青纸 #f2f7f8，浮层给纯白 ——
+     否则纸面与背景同色，浮层"贴"在背景上（读图实测过，这是第 1 轮抓到的问题） */
+  --sk-paper: #ffffff;
+  --sk-paper-line: rgba(16, 42, 51, .20);
+  --sk-shadow: 0 2px 6px rgba(16, 42, 51, .12), 0 20px 48px rgba(16, 42, 51, .22);
+  --tsn-grid: rgba(16, 42, 51, .025);
+  --tsn-glow-cool: rgba(15, 111, 159, .14);
+  --tsn-glow-warm: rgba(255, 166, 61, .12);
+}
+
+/* ═══ 1c. 让背景真的看得见（否则"选了看不见"＝界面在说假话）═══
+ * 实测（2026-09-28）：把亮渐变写进 --tsn-bg-layer 后屏幕仍是暗色 —— 用 elementsFromPoint 逐层查，
+ * 遮挡者是 DSH 应用外框 `[class*="_frame"]` 的**不透明**底色 rgb(21,21,23)。
+ * 这里只**降 alpha**：绝不加 clip-path / transform / filter / backdrop-filter ——
+ * 那几样会给弹层换包含块或直接把弹层裁掉（§70 禁令，本次事故就是这么来的）。 */
+body[data-tsnet-skin][data-tsn-bg] [class*="_frame"] {
+  /* ★ 批 3（2026-09-28）：原来写死 64%。读图实测（鲜渐变档）：消息区能看出背景，
+     但**侧栏几乎全暗** —— 因为复合不透明 ≈ 1−(1−0.45)(1−0.64) = **0.80**，只剩 20% 透出。
+     现在外框也用**材质令牌**（权重 70%），于是"背景覆盖范围"跟着材质档/倍率一起动：
+     材质 mid ⇒ 外框 0.315 ⇒ 侧栏复合 ≈ 0.62（透出 38%）；材质关 ⇒ 外框 0.67 ⇒ 复合 0.87（接近实心）。
+     这样"背景扩面"与"明度/透明倍率自选"是**同一套旋钮**，不再是两处互相打架的常数。 */
+  background-color: color-mix(in srgb, var(--sk-tint) calc(var(--sk-alpha) * 70%), transparent);
+}
+/* 最后一个遮挡者：会话列外框。
+   实测（2026-09-28）真实祖先链是 [class*="_centerCol"] → 无类名 DIV → [class*="_root"]，
+   所以这里必须是两级后代；只把它的底色改透明，**不动 clip/transform/filter**。
+   引擎里另有一条自检：若背景仍被不透明元素盖住，会在设置行里如实报出遮挡元素的类名。 */
+body[data-tsnet-skin][data-tsn-bg] [class*="_centerCol"] > div > [class*="_root"] {
+  background-color: transparent;
+}
+/* ★★ 2026-09-28 实测更正（真缺陷）：`[data-slot="sidebar"]` 与 `[data-slot="conversation"]` **都是
+   `display: contents`** —— 本机 27 个槽位标记**全部 0×0、不生成盒子**。写在槽位元素**本身**上的
+   `background-color` / `box-shadow` **一律不绘制**，所以原来这两条规则**从未生效**
+   （这就是"背景档选了却盖不住侧栏/阅读面"的真因，也解释了用户问的"背景图为什么没能更大范围覆盖"）。
+   槽位标记只对**后代选择器**有效（它的子树是真 DOM）。真实盒子（实测）：
+   · 侧栏＝`[class*="sidebarCol"]`（内层还有 `[class*="hHd-Xa_root"]`，两层都得不透明底才挡得住）
+   · 阅读面＝`[class*="scrollBody"]`（会话滚动体，实测 rect [280,76,988,418]） */
+/* ★ 侧栏的"让背景透出来"**统一由材质档负责**（`--sk-panel`）。
+   原来这里有一条 `[data-tsn-bg] [class*="sidebarCol"]{...74%...}`，实测它与材质规则**打架**：
+   该选择器特异性 (0,3,1) 高于材质那条 (0,2,1) ⇒ 只要背景档开着（默认就开着），侧栏就永远吃 74%，
+   材质档的 alpha 在侧栏上**根本没生效**（实测 bg = color(srgb .137 .137 .141 / 0.74)）。
+   两条规则表达的是同一件事（让背景透出来）⇒ 合并成一条，唯一来源＝材质令牌。 */
+body[data-tsnet-skin][data-tsn-bg] [class*="sidebarCol"] [class*="hHd-Xa_root"] {
+  background-color: transparent;
+}
+/* 阅读面留一层薄纱，保证照片档下正文仍有对比度（同样是 alpha，不裁剪） */
+body[data-tsnet-skin][data-tsn-bg] [class*="scrollBody"] {
+  background-color: color-mix(in srgb, var(--dsw-alias-bg-base) 40%, transparent);
+}
+
+/* ═══ 1b. 背景场：只画在 body::before / body::after 两个**伪元素**上 ═══
+ * 伪元素没有子节点 ⇒ 不是任何弹层的祖先 ⇒ 这里用 filter/transform 不违反 §70 禁令
+ * （禁令针对的是"可能包含弹层的祖先"）。档位由 body[data-tsn-bg] 标记；层内容与覆盖色令牌
+ * 都由引擎写在 **body** 上 —— 令牌声明在 body，若把变量写在 html 上，里面的 var() 会在 html
+ * 那层替换失败、整条 background-image 被丢弃（第一版就是这么错的，实测 body::before 只剩噪点）。 */
+body[data-tsnet-skin] {
+  background-color: var(--dsw-alias-bg-base);
+}
+body[data-tsnet-skin]::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image: var(--tsn-noise), var(--tsn-bg-layer);
+  background-repeat: repeat, repeat;
+  background-size: 256px 256px, auto;
+  background-position: 0 0, 0 0;
+  background-attachment: fixed;
+  filter: blur(var(--tsn-bg-blur));
+  transform: scale(var(--tsn-bg-scale));
+}
+body[data-tsnet-skin]::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgba(0, 0, 0, var(--tsn-bg-dim));
+}
+/* 纯色档＝"没有结构，磨砂就看不出来"（控制台原话）：这一档连噪点都去掉，才叫对照档 */
+body[data-tsnet-skin][data-tsn-bg="plain"]::before { background-image: none; }
+/* 图片/实景档：铺满、居中、不重复（模糊靠 ::before 的 filter，放大一点避免虚边） */
+body[data-tsnet-skin][data-tsn-bg="image"]::before,
+body[data-tsnet-skin][data-tsn-bg="media"]::before {
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center center;
+  background-attachment: fixed;
+}
+body[data-tsnet-skin][data-tsn-bg="custom"]::before {
+  background-repeat: no-repeat, no-repeat;
+  background-size: 256px 256px, cover;
+  background-position: 0 0, center center;
+}
+
+
+/* ═══ 2. 侧栏（骨架：颜色 + 发丝 + 左轨，全部走 box-shadow，零几何改动）═══
+ * ★ 目标已更正：动**真实盒子** `[class*="sidebarCol"]`，不是 `display:contents` 的槽位标记（见 1c 的实测）。
+ *   内层 `[class*="hHd-Xa_root"]` 让出一层，避免两层 alpha 叠加（各 45% 叠起来≈70% 实心，就不是亚克力了）。
+ * 材质：侧栏只走 **alpha 色凋**（`--sk-panel`），**不挂 backdrop-filter** ——
+ *   侧栏真磨砂的前提是给它加 `position: relative`，而"侧栏内的绝对定位弹层会不会位移"至今是 UNKNOWN
+ *   （受控实验 B：会话行菜单在本机用合成 click / 真实 hover / 真实右键三种方式都打不开）
+ *   ⇒ 没证实就不上（§70.1「弹层优先于美观」）。 */
+body[data-tsnet-skin] [class*="sidebarCol"] {
+  background-color: var(--sk-panel);
+  box-shadow: inset -1px 0 0 0 var(--sk-hair);
+  /* ═══ 批 2（2026-09-28）：侧栏真磨砂 —— 受控实验通过后启用 ═══
+   * 证据（侧栏 280×1800，**420 个后代元素逐元素比矩形**）：注入 `position:relative` +
+   *   伪元素 `backdrop-filter` ⇒ **零位移（0/420）**；侧栏内 5×5 命中网格 **25/25**；
+   *   移除注入后**复原差 0**、position 回到 static。注入与还原都是实测的，不是推理。
+   * 残余 UNKNOWN（不许读成通过）：若存在某个"打不开的弹层"是**侧栏内的 absolute 定位**，
+   *   它会被改挂到侧栏这个新包含块上 ⇒ 可能位移。五次尝试（合成 click / 真实 hover /
+   *   真实右键 / Shift+F10 / 按钮扫描）都打不开会话行菜单 ⇒ 既不能证实也不能证伪。
+   * 处置：先上（**一条规则即可回退**），观察期继续盯"侧栏里有没有东西跑位"。 */
+  position: relative;
+}
+/* ═══ 批 8：修掉两处"渐变黑脏区"（用户实测反馈，2026-09-28）═══════════════════════
+ * ① **主界面下侧**：真凶是 **DSH 自己画的一条不透明渐变**——
+ *    实测 `wSkVaW_composerSeat` 的 `background-image` ＝
+ *    `linear-gradient(color(srgb 0 0 0 / 0) 0px, rgb(21,21,23) 36px)`（透明 → 不透明深色）。
+ *    我的半透明皮肤让照片透上来，这条渐变就在底部压出一条**深色带**。
+ *    修法：背景档开着时**改用我们的材质令牌**做同一条淡出（照片贯通到底，底部仍有薄纱保对比度）。
+ *    只改 `background-image` 的渐变色，**不动它的位置/尺寸**。
+ * ② **左侧栏**：`backdrop-filter: blur(26px)` 把照片在侧栏边缘**涂开成暗涂抹**（模糊核在元素边缘
+ *    采不到外边内容）⇒ 看起来就是"渐变黑的脏区"。
+ *    修法：侧栏磨砂**默认关**（回到只有 alpha 色凋 —— 与最初建议的"亚克力只用于浮层、数据区平面"一致），
+ *    想要真磨砂的用户可在 设置→常规→材质 里打开（`body[data-tsn-sidebar-frost="on"]`）。 */
+
+/* ═══ 批 10（2026-09-29）：底部"渐变暗色脏块"—— 用户第二次反馈，根因是批 8 的修法本身 ═══
+ * 用户原话：「对话列表下侧还是有渐变暗色脏块，要修好。」
+ * 先量后改（实测）：真凶仍是 `wSkVaW_composerSeat` 那条 190px 高的渐变，但**批 8 给它换的是
+ * `var(--sk-panel)`（α .45）**，而阅读面 `[class*="scrollBody"]` 已经有一层 40% 薄纱
+ * ⇒ 底部**叠了两层**（.40 + .45 ≈ .67），比上方深约 27%，于是出现一条可见的横向台阶 ——
+ * 在照片/亮色背景下读起来就是"渐变暗色脏块"。
+ * 改法：**只改渐变的颜色与长度**，末端压到"与薄纱几乎同深"（α .10）、淡出拉长到 72px，
+ * 台阶落到肉眼不可辨；元素的位置与尺寸一律不动（§70：不用裁剪/变换/滤镜）。 */
+body[data-tsnet-skin][data-tsn-bg] [class*="composerSeat"] {
+  background-image: linear-gradient(to bottom, transparent 0px, color-mix(in srgb, var(--dsw-alias-bg-base) 10%, transparent) 72px);
+}
+
+body[data-tsnet-skin] [class*="sidebarCol"]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;                 /* 负 z：画在侧栏自己的底色之下、页面之上 */
+  pointer-events: none;        /* 伪元素不吃点击 */
+}
+/* 只有显式打开时才挂真磨砂（默认关：照片背景下会把边缘涂开成暗涂抹） */
+body[data-tsnet-skin][data-tsn-sidebar-frost="on"] [class*="sidebarCol"]::before {
+  backdrop-filter: blur(var(--sk-blur)) saturate(var(--sk-sat)) brightness(var(--sk-bright));
+}
+body[data-tsnet-skin]:not([data-tsn-sidebar-frost="on"]) [class*="sidebarCol"]::before {
+  backdrop-filter: none;
+  background: none;
+}
+/* 材质=关 时侧栏也不许留模糊（与输入卡同一条语义：关就是真关） */
+body[data-tsnet-skin][data-tsn-glass="off"] [class*="sidebarCol"]::before {
+  backdrop-filter: none;
+}
+body[data-tsnet-skin] [class*="sidebarCol"] [class*="hHd-Xa_root"] {
+  background-color: transparent;
+}
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="_sessionRow"] {
+  border-radius: 0;
+  box-shadow: inset 0 -1px 0 0 var(--sk-hair-2);
+}
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="_sessionRow"]:hover {
+  background-color: var(--dsw-alias-bg-layer-2);
+}
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="_sessionRow"][aria-selected="true"],
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="_sessionRow"][data-active="true"] {
+  background-color: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: inset var(--sk-rail) 0 0 0 var(--sk-primary), inset 0 -1px 0 0 var(--sk-hair-2);
+}
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="_groupSection"],
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="_groupLabel"] {
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  font-size: 11px;
+  color: var(--dsw-alias-label-caption);
+}
+body[data-tsnet-skin] [data-slot="sidebar"] button[class*="_navCell"][class*="_active"],
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="_navCell"][aria-current="page"] {
+  color: var(--sk-primary);
+}
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="bm-row"],
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="_sessionRow"] time,
+body[data-tsnet-skin] [data-slot="sidebar"] [class*="_sessionRow"] span[class*="_meta"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══ 3. 浮层：纸面（只动颜色 / 圆角 / 阴影 / 边框色 ⇒ 不裁剪、不改几何）═══ */
+body[data-tsnet-skin] [role="dialog"],
+body[data-tsnet-skin] [role="menu"],
+body[data-tsnet-skin] [role="listbox"] {
+  background-color: var(--sk-paper);
+  border-radius: 2px;
+  /* 发丝线与投影都走 box-shadow：不改 border 宽度 ⇒ 容器内元素一行都不位移 */
+  box-shadow: 0 0 0 1px var(--sk-paper-line), var(--sk-shadow);
+  color: var(--sk-paper-ink);
+  /* 纸面作用域内令牌换档：浮层里的控件吃这组值，不必逐个改组件 */
+  --dsw-alias-label-primary: #10262e;
+  --dsw-alias-label-primary-bluish: #0d3a4a;
+  --dsw-alias-label-primary-dimmed: #3c5560;
+  --dsw-alias-label-primary-foreground: #10262e;
+  --dsw-alias-label-secondary: #3c5560;
+  --dsw-alias-label-tertiary: #5b7480;
+  --dsw-alias-label-caption: #5b7480;
+  --dsw-alias-label-dimmed: #9db0b8;
+  --dsw-alias-bg-layer-1: #f2f7f8;
+  --dsw-alias-bg-layer-2: #ecf3f4;
+  --dsw-alias-bg-layer-3: #e4edef;
+  --dsw-alias-bg-overlay: #cfdfe3;
+  --dsw-alias-bg-module-platform: #e4edef;
+  --dsw-alias-button-ghost-active-fill: #d9e6e9;
+  --dsw-alias-button-ghost-active-hover: #cfdfe3;
+  --dsw-alias-button-ghost-active-border: #b9cdd2;
+  --dsw-alias-button-elevated-fill: #ffffff;
+  --dsw-alias-button-floating-fill: #ffffff;
+  --dsw-alias-button-floating-hover: #ecf3f4;
+  --dsw-alias-interactive-bg-hover: #10262e0f;
+  --dsw-alias-interactive-bg-active: #10262e1a;
+  --dsw-alias-interactive-bg-hover-solid: #ecf3f4;
+  --dsw-alias-markdown-inline-code: #e4edef;
+  --dsw-alias-markdown-tag: #e4edef;
+  --dsw-alias-markdown-placeholder: #ecf3f4;
+  --dsw-alias-state-business-tertiary: #d7eaf2;
+  --dsw-alias-border-l1: rgba(16, 42, 51, .10);
+  --dsw-alias-border-l2: rgba(16, 42, 51, .14);
+  --dsw-alias-border-l3: rgba(16, 42, 51, .20);
+  --dsw-specific-selector: #ecf3f4;
+  --dsw-specific-tip: #e4edef;
+  --dsw-static-deepseek-600: #2b87a0;
+  --dsw-static-deepseek-800: #4a6069;
+  --dsw-static-deepseek-900: #3c5560;
+  --dsw-static-neutral-bluish-50: #f2f7f8;
+  --dsw-static-neutral-bluish-75: #e4edef;
+  --dsw-static-neutral-bluish-100: #d9e6e9;
+  --dsw-static-neutral-bluish-150: #cfdfe3;
+  --dsw-static-neutral-bluish-200: #c6d8dc;
+  --dsw-static-neutral-bluish-300: #b9cdd2;
+  --dsw-static-neutral-bluish-500: #7f95a0;
+  --dsw-static-neutral-bluish-600: #5b7480;
+  --dsw-static-neutral-bluish-750: #3c5560;
+  --dsw-static-neutral-bluish-900: #1a272d;
+  --dsw-static-neutral-bluish-950: #10262e;
+}
+/* 选中项：纸面里的浅蓝底（活动块是模块字面色，探针实测不吃令牌 ⇒ 组件层兜底） */
+body[data-tsnet-skin] [role="dialog"] [class*="_navCell"][class*="_acti"],
+body[data-tsnet-skin] [role="menu"] [class*="_option"][class*="_selected"],
+body[data-tsnet-skin] [role="menu"] [aria-selected="true"] {
+  background-color: #d7eaf2;
+  color: #10262e;
+}
+/* 浮层里的条目：等宽数字 + 不用圆角 */
+body[data-tsnet-skin] [role="menu"] [class*="_option"],
+body[data-tsnet-skin] [role="listbox"] [role="option"] {
+  border-radius: 0;
+  font-variant-numeric: tabular-nums;
+}
+/* 提示气泡：暗形态给深板（不磨砂，避免在浮层上叠滤镜） */
+body[data-tsnet-skin][data-ds-dark-theme] [role="tooltip"] {
+  background-color: var(--dsw-alias-tooltip-bg);
+  border-radius: 2px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* ═══ 4. 全局收尾：焦点环 / 选中色（都不影响几何）═══
+ * ★ 这里**刻意不做滚动条配色**：`scrollbar-color` 一旦生效，Chrome 会把滚动条从"覆盖式"
+ *   换成"占位式"，**占掉布局宽度** —— 实测手机形态宽度少约 7px，右对齐的模型弹层整体左移 7px，
+ *   被弹层回归量具判 FAIL（`--skin-off --inject` 二分定位：去掉这条即 8/8 PASS）。
+ *   教训：滚动条配色**不是**纯外观声明，它可能改布局；白名单里那条已据此收紧（skill §70.1）。
+ *   真要配色，只能在"不参与布局测量"的元素上做，并且必须跑量具。 */
+body[data-tsnet-skin] :focus-visible {
+  outline: 2px solid var(--sk-secondary);
+  outline-offset: 2px;
+}
+body[data-tsnet-skin] ::selection {
+  background: rgba(86, 200, 221, .30);
+}
+body[data-tsnet-skin]:not([data-ds-dark-theme]) ::selection {
+  background: rgba(15, 111, 159, .22);
+}
+
+/* ═══ 5. 设置行「背景」（tsnbg-*）：自绘行，落在设置对话框的纸面上 ═══
+ * 颜色一律用语义令牌（--dsw-alias-label-* 等），因为纸面作用域里这些令牌已经被换过档；
+ * 几何克制：只改行内排布，不改设置对话框本身的骨架。 */
+.tsnbg-row {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 0; border-top: 1px solid var(--dsw-alias-border-l1);
+}
+.tsnbg-head { display: flex; align-items: baseline; gap: 8px; }
+.tsnbg-label { font-size: 13px; color: var(--dsw-alias-label-primary); }
+.tsnbg-note { font-size: 11px; color: var(--dsw-alias-label-caption); }
+.tsnbg-desc { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+.tsnbg-modes { display: flex; flex-wrap: wrap; gap: 6px; }
+.tsnbg-mode {
+  font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 2px; cursor: pointer;
+  color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l1);
+}
+.tsnbg-mode:hover { border-color: var(--sk-secondary); color: var(--dsw-alias-label-primary); }
+.tsnbg-mode.on { color: var(--sk-primary); border-color: var(--sk-primary); background: var(--dsw-alias-bg-layer-3); }
+.tsnbg-sub { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 2px; }
+.tsnbg-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.tsnbg-range { width: 110px; accent-color: var(--sk-primary); }
+.tsnbg-num { font: 11px/1 var(--ui-monospace, monospace); font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-primary); min-width: 52px; }
+.tsnbg-btn {
+  font: inherit; font-size: 12px; padding: 4px 9px; border-radius: 2px; cursor: pointer;
+  color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l1);
+}
+.tsnbg-btn:hover { border-color: var(--sk-secondary); color: var(--dsw-alias-label-primary); }
+.tsnbg-btn.on { color: var(--sk-primary); border-color: var(--sk-primary); }
+.tsnbg-x { border: 0; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; font-size: 13px; padding: 0 4px; }
+.tsnbg-stops { display: flex; flex-direction: column; gap: 4px; }
+.tsnbg-stop { display: flex; align-items: center; gap: 6px; }
+.tsnbg-stop input[type="color"] { width: 28px; height: 20px; padding: 0; border: 1px solid var(--dsw-alias-border-l1); background: transparent; }
+.tsnbg-thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tsnbg-thumb {
+  width: 54px; height: 34px; object-fit: cover; border-radius: 2px; cursor: pointer;
+  border: 1px solid var(--dsw-alias-border-l1);
+}
+.tsnbg-thumb:hover { border-color: var(--sk-secondary); }
+.tsnbg-thumb.on { border-color: var(--sk-primary); }
+.tsnbg-file { font-size: 11px; color: var(--dsw-alias-label-caption); }
+/* ★ 批 4：`.tsnbg-gal / .tsnbg-crumb / .tsnbg-dirs` 三条已删 —— 它们只服务「服务器图库」那一段，
+   图库按用户要求撤掉后它们就是**死样式**（与 1c 那三条 display:contents 死规则同类，不留）。 */
+.tsnbg-tone { border-top: 1px solid var(--dsw-alias-border-l1); padding-top: 8px; }
+
+/* ═══ 6. 材质（skin v4 批 1，2026-09-28）：四档 × 用户倍率 × 明度 ══════════════════
+ * 形制逐字抄中控台 tokens.css 的四档标定值（blur / 透明度基线 / 环境光 / 透射亮度）：
+ *   high 34px .38 10% 1.07 · mid 26px .45 8% 1.05 · low 18px .60 5% 1.03 · off 0px .96 0% 1
+ * 与中控台的唯一差别：**只有被实验放行的表面才用 backdrop-filter** ——
+ *   · 输入卡 `[data-composer-card]`：受控实验 A ⇒ `ui-popover-regression` **8/8 PASS**
+ *     （矩形/命中比例/条目数与基线全一致，含 `views-menu` 那条 position:fixed 的弹层）⇒ 放行；
+ *   · 侧栏：**不放行**（见 §2 的 UNKNOWN，只走 alpha）；
+ *   · 浮层：暂不放行（菜单里可能嵌二级面板，属"可能包含弹层的祖先"）。
+ * ★ 令牌只在 `body[data-tsnet-skin]` 上声明，运行时也只写 body（§70.3-1：声明处＝赋值处）。 */
+body[data-tsnet-skin] {
+  --sk-tint-base: rgb(22, 24, 29);
+  --sk-lum-toward: #ffffff;
+  --sk-sat: 132%;
+  --sk-alpha-k: 1;          /* 用户倍率：有效 alpha = 档位基线 × 倍率（声明只有一份，参数不复制） */
+  --sk-lum-k: 0%;           /* 用户明度加值 */
+  --sk-alpha-base: .45;
+  --sk-blur: 26px;
+  --sk-lum: 8%;
+  --sk-bright: 1.05;
+  /* 刻度轨墨色（批 5）：★ 第一版借用了 `--sk-hair`（那是给 1px 发丝线用的 10% 不透明），
+     结果读图发现暗形态下刻度几乎看不见 ⇒ 单独给一族可读的墨色，不再复用发丝线颜色。 */
+  --sk-rail-ink: rgba(163, 219, 235, .52);
+  --sk-rail-ink-hot: rgba(255, 122, 60, .95);
+}
+body[data-tsnet-skin]:not([data-ds-dark-theme]) {
+  --sk-tint-base: rgb(242, 247, 248);
+  --sk-lum-toward: #000000;   /* 亮形态往黑让一步才叫"调暗" */
+  /* 亮形态的刻度墨色：暗青（与亮形态主色同族），否则在青纸底上看不见 */
+  --sk-rail-ink: rgba(16, 42, 51, .50);
+  --sk-rail-ink-hot: rgba(14, 124, 140, .95);
+}
+body[data-tsnet-skin][data-tsn-glass="high"] { --sk-blur: 34px; --sk-alpha-base: .38; --sk-lum: 10%; --sk-bright: 1.07; }
+body[data-tsnet-skin][data-tsn-glass="mid"]  { --sk-blur: 26px; --sk-alpha-base: .45; --sk-lum: 8%;  --sk-bright: 1.05; }
+body[data-tsnet-skin][data-tsn-glass="low"]  { --sk-blur: 18px; --sk-alpha-base: .60; --sk-lum: 5%;  --sk-bright: 1.03; }
+body[data-tsnet-skin][data-tsn-glass="off"]  { --sk-blur: 0px;  --sk-alpha-base: .96; --sk-lum: 0%;  --sk-bright: 1; }
+/* 派生值：全部在同一个元素（body）上声明 ⇒ var() 在 body 这一层替换，不会出现"声明处 vs 赋值处"错位 */
+body[data-tsnet-skin] {
+  --sk-alpha: calc(var(--sk-alpha-base) * var(--sk-alpha-k));
+  --sk-lum-total: calc(var(--sk-lum) + var(--sk-lum-k));
+  --sk-tint: color-mix(in srgb, var(--sk-tint-base) calc(100% - var(--sk-lum-total)), var(--sk-lum-toward) var(--sk-lum-total));
+  --sk-panel: color-mix(in srgb, var(--sk-tint) calc(var(--sk-alpha) * 100%), transparent);
+}
+/* 输入卡＝唯一放行真磨砂的表面（实验 A 的结论）。发丝线与投影仍走 box-shadow：不改 border 宽度。 */
+body[data-tsnet-skin] [data-composer-card] {
+  backdrop-filter: blur(var(--sk-blur)) saturate(var(--sk-sat)) brightness(var(--sk-bright));
+  background-color: var(--sk-panel);
+  box-shadow: inset 0 0 0 1px var(--sk-hair), 0 18px 44px rgba(0, 0, 0, .34);
+}
+/* 档位=关：连 blur(0px) 都不要 —— 非 none 的 backdrop-filter 一样会建包含块，
+   而"关"这一档的语义是"与 DSH 默认一模一样"（可对照、可回退）。 */
+body[data-tsnet-skin][data-tsn-glass="off"] [data-composer-card] {
+  backdrop-filter: none;
+  background-color: var(--dsw-alias-bg-layer-1);
+  box-shadow: none;
+}
+/* 材质行的自绘子块：复用背景行的 tsnbg-* 语言，不新增第二套样式 */
+.tsnbg-sub {
+  display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
+  background: var(--dsw-alias-bg-layer-1); border: 1px solid var(--dsw-alias-border-l1); border-radius: 10px;
+}
+
+/* ═══ 批 A2：浮层圆角照 Codex 规格（2px → 10px）；自绘控件同步 ═══
+ * 依据：openai/codex 的 `style.rs` 与 `b-nnett/codex-plusplus` 的设置窗口实拍（我读过图）——
+ * 卡片 10px、按钮 8px。`border-radius` 在 §70 白名单里（不裁子孙、不改几何），
+ * 但仍照纪律跑了弹层量具（几何回归）后才提交。 */
+body[data-tsnet-skin] [class*="dshwv-menu"],
+body[data-tsnet-skin] .tsnbg-sub,
+body[data-tsnet-skin] .tsnbg-mode,
+body[data-tsnet-skin] .tsnbg-btn {
+  border-radius: 10px;
+}
+
+/* ═══ 批 A4：照片档下占位符差一点（实测 4.14:1 vs 门槛 4.5）⇒ 最小必要提升 ═══
+ * 判据：`tools\skin-contrast.mjs`（官方 MIN_TEXT_CONTRAST = 4.5）。
+ * 记录两次迭代（探针修好后）：无改动 4.14:1（FAIL，差 0.36）→ 本改动后再测（目标 5–6.5，留余量）。
+ * ★ 中途教训：我第一版抬到 `label-primary 78%` ⇒ 14.68:1，**远超需要**（观感上会发白）；
+ *   剂量由判据收敛，不靠手感。 */
+body[data-tsnet-skin][data-tsn-bg] ::placeholder {
+  color: color-mix(in srgb, var(--dsw-alias-label-secondary) 80%, transparent);
+}
+
+/* ═══ 批 A3：缓动族与 reduced-motion（Codex 规格）═══════════════════════════════════
+ * 依据（取证报告 §2）：参照物的动效差异**不在时长**（.16s/.12s 本就相近），而在"有没有收尾"——
+ * 它们统一用 `cubic-bezier(.16,1,.3,1)`（进场）与 `(.22,1,.36,1)`（形变），三家独立一致。
+ * 本批把这两条曲线做成**单一来源令牌**（声明在 body，与其它皮肤令牌同一处；自定义属性会继承进
+ * 刻度轨的 Shadow DOM ⇒ rail 也吃同一份，不再是"JS 写死一份、CSS 再写一份"）。
+ * 同时补 `prefers-reduced-motion` 覆盖 —— 无障碍要求，改前皮肤一条都没有。
+ * 只覆盖**我们自己的**选择器，不动 DSH 自身的动效（§70 白名单）。 */
+body[data-tsnet-skin] {
+  --sk-ease: cubic-bezier(.16, 1, .3, 1);        /* 进场 / 淡入 */
+  --sk-ease-soft: cubic-bezier(.22, 1, .36, 1);  /* 形变 / 宽度 */
+  --sk-dur: .16s;
+  --sk-dur-fast: .12s;
+}
+body[data-tsnet-skin] .tsnbg-btn,
+body[data-tsnet-skin] .tsnbg-mode,
+body[data-tsnet-skin] .tsnbg-sub {
+  transition: background-color var(--sk-dur-fast) var(--sk-ease),
+              color var(--sk-dur-fast) var(--sk-ease),
+              border-color var(--sk-dur-fast) var(--sk-ease),
+              opacity var(--sk-dur-fast) var(--sk-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-tsnet-skin] .tsnbg-btn,
+  body[data-tsnet-skin] .tsnbg-mode,
+  body[data-tsnet-skin] .tsnbg-sub {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ═══ 批 A7：皮肤自己控件的手机形态判据（J4 触控 ≥44）═══════════════════════════════
+ * 判据（`tools\skin-form.mjs`）实测到的真缺陷：手机上
+ *   · 背景档按钮 53×26px   · 背景模式块 53×28px   （材质/刻度子块 53×53 本就合格）
+ * 修法：**不可见命中层**（`::after`）把命中区补到 44 高 —— **不改 padding / 不写死宽高**，
+ * 所以不产生布局位移（白名单里"内边距"算越界，这条不算）。
+ * 形态标记 `body[data-tsn-form]` 由 `rail-engine.js` 的 `isMobileForm()` **单一来源**写入
+ * （DSH 外壳没有形态标记，实测）——不在 CSS 里另写一套媒体查询断点（skill §1③）。 */
+body[data-tsnet-skin][data-tsn-form="mobile"] .tsnbg-btn,
+body[data-tsnet-skin][data-tsn-form="mobile"] .tsnbg-mode {
+  position: relative;
+}
+body[data-tsnet-skin][data-tsn-form="mobile"] .tsnbg-btn::after,
+body[data-tsnet-skin][data-tsn-form="mobile"] .tsnbg-mode::after {
+  content: "";
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: 44px; min-width: 44px;
+  transform: translateY(-50%);
+}
+
